@@ -7,12 +7,13 @@ This project contains files to create a solution using Autoscaling Lifecycle Hoo
 To achieve that goal we use the folling resources and services on AWS:
 
 ### What you need
-1 - Autoscaling Group
-2 - IAM Role and Policies
-3 - Lambda Function
-4 - CloudWatch Rule
-5 - Systems Manager (SSM) Document
-6 - Run Command 
+- Autoscaling Group
+- IAM Role and Policies
+- S3 Buckets
+- Lambda Function
+- CloudWatch Rule
+- Systems Manager (SSM) Document
+- Run Command 
 
 ## Solution
 ![Diagram - Autoscaling Lifecycle Hook](diagram-1.png)
