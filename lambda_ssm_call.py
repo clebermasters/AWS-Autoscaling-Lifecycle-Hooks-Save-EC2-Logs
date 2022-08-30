@@ -4,6 +4,9 @@ import logging
 import time
 import os
 
+from json import dumps
+from httplib2 import Http
+
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 ssm_client = boto3.client("ssm")
@@ -17,12 +20,34 @@ RESPONSE_DOCUMENT_KEY = "DocumentIdentifiers"
 S3BUCKET = os.environ['S3BUCKET']
 SNSTARGET = os.environ['SNSTARGET']
 DOCUMENT_NAME = os.environ['SSM_DOCUMENT_NAME']
+ASGNAME=''
 
-def backup_dir():
-    # You can change the path from where the logs are on the EC2 Instance. 
-    # Also, you can send one environment variable from Lambda function to configure this path dynamically.
-    return "/var/log/"
-    
+from datetime import datetime
+DATE_PROCESS=datetime.utcnow().strftime('%Y_%m_%d_%H_%M_%S_%f')[:-3]
+print("DATE_PROCESS" + DATE_PROCESS)
+
+class Result:
+  def __init__(self, m, p):
+    self.text = m
+    self.branch = p
+
+class Instance:
+  def __init__(self, a, m, p, file, path):
+    self.id = a
+    self.name = m
+    self.ip = p
+    self.file = file
+    self.path = path
+
+########################  Modify the autosclaing group name and which you would like to take backup ###########
+def backup_dir(ASGNAME):
+    auto_scaling_group = ASGNAME
+    print(auto_scaling_group)
+    if auto_scaling_group == 'specific-asg':
+        return "/var/log/"
+    else:
+        return "/var/log/"
+#############################################
 def check_response(response_json):
     try:
         if response_json['ResponseMetadata']['HTTPStatusCode'] == 200:
@@ -40,7 +65,7 @@ def list_document():
     return response
 
 def check_document():
-    # Check If the document already exists, it will not create it.
+    # If the document already exists, it will not create it.
     try:
         response = list_document()
         if check_response(response):
@@ -57,7 +82,7 @@ def check_document():
         logger.error("Document error: %s", str(e))
         return None   
 
-def send_command(instance_id,LIFECYCLEHOOKNAME,ASGNAME):
+def send_command(instance_id,LIFECYCLEHOOKNAME,ASGNAME, instance):
     # Until the document is not ready, waits in accordance to a backoff mechanism.
     while True:
         timewait = 1
@@ -67,7 +92,9 @@ def send_command(instance_id,LIFECYCLEHOOKNAME,ASGNAME):
         time.sleep(timewait)
         timewait += timewait
     try:
-        BACKUPDIRECTORY= backup_dir()
+        BACKUPDIRECTORY= backup_dir(ASGNAME)
+        print("send_command- Path:" + instance.path)
+        print("send_command- File:" + instance.file)
         response = ssm_client.send_command(
             InstanceIds = [ instance_id ], 
             DocumentName=DOCUMENT_NAME,
@@ -76,7 +103,10 @@ def send_command(instance_id,LIFECYCLEHOOKNAME,ASGNAME):
             'LIFECYCLEHOOKNAME' : [LIFECYCLEHOOKNAME],
             'BACKUPDIRECTORY' : [BACKUPDIRECTORY],
             'S3BUCKET' : [S3BUCKET],
-            'SNSTARGET' : [SNSTARGET] },
+            'SNSTARGET' : [SNSTARGET],
+            'FILE' : [instance.file],
+            'PATH' : [instance.path]
+            },
             TimeoutSeconds= 600
             )
         if check_response(response):
@@ -130,6 +160,45 @@ def abandon_lifecycle(life_cycle_hook, auto_scaling_group, instance_id):
         logger.error("Lifecycle hook abandon could not be executed: %s", str(e))
         return None    
 
+def get_instance_info(instance_id):
+    client = boto3.client('ec2')
+    name=''
+    ip=''
+    file=""
+    path=""
+    # aws s3 cp /tmp/${INSTANCEID}-${INSTANCEIP}.tar s3://{{S3BUCKET}}/{{ASGNAME}}/${INSTANCEID}_${INSTANCEIP}_{{DATEPROCESS}}/
+    
+    try:
+        response = client.describe_instances(
+            InstanceIds=[
+                instance_id,
+            ],
+            )
+
+        for r in response['Reservations']:
+            for i in r['Instances']:
+                print (i['PrivateIpAddress'])
+                ip=i['PrivateIpAddress']
+                for t in i['Tags']:
+                    if t['Key'] == 'Name':
+                        name=t['Value']
+                        print (t['Value'])    
+
+        if check_response(response):
+            logger.info("Get Instance Info with success: %s", response)
+            file=instance_id + "-" + ip + "_" + DATE_PROCESS + ".tar"
+            path="s3://" + S3BUCKET + "/" + name + "/" 
+            # path="s3://" + S3BUCKET + "/" + name + "/" + instance_id + "_" + ip + "_" + DATE_PROCESS + "/"
+            instance = Instance(instance_id, name, ip, file, path)
+            print("Path:" + path)
+            print("file:" + file)
+            return instance
+        else:
+            logger.error("Could NOT Get Instance Info: %s", response)
+    except Exception as e:
+        logger.error("Could NOT Get Instance Info: %s", str(e))
+        return None    
+
 def lambda_handler(event, context):
     try:
         logger.info(json.dumps(event))
@@ -139,11 +208,12 @@ def lambda_handler(event, context):
             life_cycle_hook = message[LIFECYCLE_KEY]
             print (life_cycle_hook)
             auto_scaling_group = message[ASG_KEY]
+            ASGNAME=auto_scaling_group
             print (auto_scaling_group)
             instance_id = message[EC2_KEY]
-            print (instance_id)
             if check_document():
-                command_id = send_command(instance_id,life_cycle_hook,auto_scaling_group)
+                instance = get_instance_info(instance_id)
+                command_id = send_command(instance_id,life_cycle_hook,auto_scaling_group, instance)
                 print (command_id)
                 if command_id != None:
                     if check_command(command_id, instance_id):
