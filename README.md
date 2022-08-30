@@ -6,17 +6,17 @@ This project contains files to create a solution using Autoscaling Lifecycle Hoo
 
 To achieve that goal we use the folling resources and services on AWS:
 
-### What you need
+### What you need (Updated on 2022)
 - Autoscaling Group
 - IAM Role and Policies
 - S3 Buckets
 - Lambda Function
-- CloudWatch Rule
+- EventBridge Rule
 - Systems Manager (SSM) Document
 - Run Command 
 
 ## Solution
-![Diagram - Autoscaling Lifecycle Hook](diagram-1.png)
+![Diagram - Autoscaling Lifecycle Hook](diagram-2.png)
 
 ## Documentation
 [Autoscaling Lifecycle Hooks: Save EC2 Logs Automatically to S3 Bucket](https://www.bitslovers.com/autoscaling-lifecycle-hooks/)
